@@ -90,161 +90,127 @@ terminal         AND, ARRAY, BOOLEAN, BY, DEF, DIV, ELSE, EQUAL, EXIT, FALSE,
                  PLUS, MINUS, TIMES, TRUE, LT, LEQ, GT, GEQ, EQ, NEQ, COLON, SEMI,
                  COMMA, SHARP, DOT, LP, RP, LB, RB, LSB, RSB, UMINUS;
 
-/* Comment out for project 2
-non terminal Program                         program;
-non terminal BlockSt                         block_content;
-non terminal List<Definition>                defs;
-non terminal Stmt                            stmt;
-non terminal List<Stmt>                      stmts;
-non terminal Expr                            expr;
-*/
+non terminal Program 						program;
+non terminal BlockSt						block;
+non terminal Definition						def;
+non terminal Type							type;
+non terminal Lvalue							lvalue;
+non terminal Expr							expr;
+non terminal Stmt							stmt;
+non terminal List<Definition>				deflist;
+non terminal List<Stmt>						stmtlist;
+non terminal List<Bind<Type>>				idtypelist;
+non terminal List<Type>						typelist;
+non terminal List<Expr>						exprlist;
+non terminal List<Bind<Expr>>				expridlist;
+non terminal List<Lvalue>					lvaluelist;
+non terminal Stmt							elsestmt;
 
-non terminal program;
-non terminal block;
-non terminal def;
-non terminal type;
-non terminal lvalue;
-non terminal expr;
-non terminal unaryOp;
-non terminal binaryOp;
-non terminal stmt;
-non terminal deflist;
-non terminal stmtlist;
-non terminal idtypelist;
-non terminal typelist;
-non terminal exprlist;
-non terminal expridlist;
-non terminal lvaluelist;
-non terminal ifstmtlist;
-non terminal exprstmtlist;
-
-precedence nonassoc	IF, ELSE;
-precedence right	OR;
-precedence right	AND;
-precedence nonassoc	NOT;
-precedence left		EQ, LT, GT, LEQ, GEQ, NEQ;
-precedence left		PLUS, MINUS, MOD;
-precedence left		TIMES, DIV;
-precedence left		LP, RP, LB, RB, LSB, RSB, SEMI;
-precedence nonassoc UMINUS;
+precedence nonassoc     IF,ELSE;
+precedence right        OR;
+precedence right        AND;
+precedence nonassoc     NOT;
+precedence left         EQ, LT, GT, LEQ, GEQ, NEQ;
+precedence left         PLUS, MINUS, MOD;
+precedence left         TIMES, DIV;
+precedence left			LP, RP, LB, RB, LSB, RSB, SEMI;
+precedence nonassoc 	UMINUS;
 
 start with program;
-/* Comment out for project 2
-program         ::= block_content:b                     {: SPL.setAST(new Program(b)); :}
-                ;
-block_content   ::= defs:dl stmts:sl                    {: RESULT = new BlockSt(dl,sl); :}
-                |   stmts:sl                            {: RESULT = new BlockSt(nil,sl); :}
-                ;
-defs            ::= DEF
-                ;
-expr            ::= INTEGER_LITERAL:n                   {: RESULT = new IntConst(n); :}
-                ;
-stmt            ::= WHILE LP expr:e RP stmt:s           {: RESULT = new WhileSt(e,s); :}
-                ;
-stmts           ::= stmt:s SEMI                         {: RESULT = append(nil,s); :}
-                |   stmts:sl stmt:s SEMI                {: RESULT = append(sl,s); :}
-                ;
-*/
 
-program			::= block
+program			::= block:b								{: SPL.setAST(new Program(b)); :}
 				;
-block			::= deflist stmt SEMI stmtlist
+block			::= deflist:dl stmt:s SEMI stmtlist:sl	{: RESULT = new BlockSt(dl,add(s,sl)); :}
 				;
-deflist			::= deflist def SEMI 
-				|
+deflist			::=	deflist:dl def:d SEMI 				{: RESULT = append(dl,d); :} 
+				|	{: RESULT = nil; :} 
 				;
-stmtlist		::= stmtlist stmt SEMI 
-				|
+stmtlist		::= stmtlist:sl stmt:s SEMI				{: RESULT = append(sl,s); :}
+				|	{: RESULT = nil; :}
 				;
-def				::= VAR ID EQUAL expr
-				|	VAR ID COLON type EQUAL expr
-				| 	TYPE ID EQUAL type
-				| 	DEF ID LP RP LB block RB
-				|	DEF ID LP ID COLON type idtypelist RP LB block RB
-				|	DEF ID LP RP COLON type LB block RB
-				|	DEF ID LP ID COLON type idtypelist RP COLON type LB block RB
+def				::= VAR ID:id EQUAL expr:e				{: RESULT = new VarDef(id,new AnyType(),e); :}
+				|	VAR ID:id COLON type:t EQUAL expr:e	{: RESULT = new VarDef(id,t,e); :}
+				| 	TYPE ID:id EQUAL type:t				{: RESULT = new TypeDef(id,t); :}
+				| 	DEF ID:id LP RP LB block:b RB		{: RESULT = new FuncDef(id,nil,new NoType(),b); :}
+				|	DEF ID:id LP idtypelist:tl RP LB block:b RB	{: RESULT = new FuncDef(id,tl,new NoType(),b); :}
+				|	DEF ID:id LP RP COLON type:t LB block:b RB	{: RESULT = new FuncDef(id,nil,t,b); :}
+				|	DEF ID:id LP idtypelist:tl RP COLON type:t LB block:b RB	{: RESULT = new FuncDef(id,tl,t,b); :}
 				;
-idtypelist		::= idtypelist COMMA ID COLON type 
-				|
+idtypelist		::= idtypelist:tl COMMA ID:id COLON type:t	{: RESULT = append(tl,new Bind(id,t)); :} 
+				|	ID:id COLON type:t					{: RESULT = add(new Bind(id,t),nil); :}
 				;
-type 			::= INT
-				|	FLOAT
-				|	STRING
-				|	BOOLEAN
-				|	ID
-				|	ARRAY LSB type RSB
-				|	LB ID COLON type idtypelist RB
-				|	LP type typelist RP
-				|	LP RP
+type 			::= INT									{: RESULT = new IntType(); :}
+				|	FLOAT								{: RESULT = new FloatType(); :}
+				|	STRING								{: RESULT = new StringType(); :}
+				|	BOOLEAN								{: RESULT = new BooleanType(); :}
+				|	ID:id								{: RESULT = new NamedType(id); :}
+				|	ARRAY LSB type:t RSB				{: RESULT = new ArrayType(t); :}
+				|	LB idtypelist:itl RB				{: RESULT = new RecordType(itl); :}
+				|	LP typelist:tl RP					{: RESULT = new TupleType(tl); :}
+				|	LP RP								{: RESULT = new AnyType(); :}
 				;
-typelist		::= typelist COMMA type 
-				|
+typelist		::= typelist:tl COMMA type:t			{: RESULT = append(tl,t); :}
+				|	type:t								{: RESULT = add(t,nil); :}
 				;
-lvalue			::= ID
-				|	lvalue LSB expr RSB 
-				|	lvalue DOT ID
-				|	lvalue SHARP INTEGER_LITERAL
+lvalue			::= ID:id								{: RESULT = new Var(id); :}
+				|	lvalue:lv LSB expr:e RSB			{: RESULT = new ArrayDeref(new LvalExp(lv),e); :}
+				|	lvalue:lv DOT ID:id					{: RESULT = new RecordDeref(new LvalExp(lv),id); :}
+				|	lvalue:lv SHARP INTEGER_LITERAL:i	{: RESULT = new TupleDeref(new LvalExp(lv),i); :}
 				;
-expr			::= INTEGER_LITERAL 
-				|	FLOAT_LITERAL 
-				|	STRING_LITERAL 
-				|	TRUE 
-				|	FALSE
-				|	lvalue 
-				|	unaryOp expr
-				|	ARRAY LP expr COMMA expr RP 
-				|	expr binaryOp expr
-				|	ID LP expr exprlist RP 
-				|	ID LP RP
-				|	LB ID EQUAL expr expridlist RB 
-				|	LP RP 
-				|	LP expr exprlist RP 
-				|	LSB expr exprlist RSB 
+expr			::= INTEGER_LITERAL:i					{: RESULT = new IntConst(i); :} 
+				|	FLOAT_LITERAL:f						{: RESULT = new FloatConst(f); :}
+				|	STRING_LITERAL:s					{: RESULT = new StringConst(s); :}
+				|	TRUE	 							{: RESULT = new BooleanConst(true); :}
+				|	FALSE								{: RESULT = new BooleanConst(false); :}
+				|	lvalue:lv							{: RESULT = new LvalExp(lv); :}
+				|	NOT expr:e							{: RESULT = new UnOpExp("not",e); :}
+				|	MINUS expr:e						{: RESULT = new UnOpExp("minus",e); :}
+				|	ARRAY LP expr:e1 COMMA expr:e2 RP	{: RESULT = new ArrayGen(e1,e2); :} 
+				|	expr:el PLUS expr:er				{: RESULT = new BinOpExp("plus",el,er); :}
+				|	expr:el MINUS expr:er				{: RESULT = new BinOpExp("minus",el,er); :}
+				|	expr:el TIMES expr:er				{: RESULT = new BinOpExp("times",el,er); :}
+				|	expr:el DIV expr:er					{: RESULT = new BinOpExp("div",el,er); :}
+				|	expr:el MOD expr:er					{: RESULT = new BinOpExp("mod",el,er); :}
+				|	expr:el AND expr:er					{: RESULT = new BinOpExp("and",el,er); :}
+				|	expr:el OR expr:er					{: RESULT = new BinOpExp("or",el,er); :}
+				|	expr:el EQ expr:er					{: RESULT = new BinOpExp("eq",el,er); :}
+				|	expr:el NEQ expr:er					{: RESULT = new BinOpExp("neq",el,er); :}
+				|	expr:el LT expr:er					{: RESULT = new BinOpExp("lt",el,er); :}
+				|	expr:el LEQ expr:er					{: RESULT = new BinOpExp("leq",el,er); :}
+				|	expr:el GT expr:er					{: RESULT = new BinOpExp("gt",el,er); :}
+				|	expr:el GEQ expr:er					{: RESULT = new BinOpExp("geq",el,er); :}
+				|	ID:id LP exprlist:expl RP 			{: RESULT = new CallExp(id,expl); :}
+				|	ID:id LP RP							{: RESULT = new CallExp(id,append(nil,new NullExp())); :}
+				|	LB expridlist:eil RB 				{: RESULT = new RecordExp(eil); :}
+				|	LP RP 								{: RESULT = new NullExp(); :}
+				|	LP exprlist:expl RP 				{: RESULT = new TupleExp(expl); :}
+				|	LSB exprlist:expl RSB 				{: RESULT = new ArrayExp(expl); :}
 				;
-expridlist		::= expridlist COMMA ID EQUAL expr 
-				|
+expridlist		::= expridlist:eil COMMA ID:id EQUAL expr:e {: RESULT = append(eil,new Bind(id,e)); :}
+				|	ID:id EQUAL expr:e					{: RESULT = add(new Bind(id,e),nil); :}
 				;
-exprlist		::= exprlist COMMA expr 
-				|
+exprlist		::= exprlist:el COMMA expr:e			{: RESULT = append(el,e); :}
+				|	expr:e								{: RESULT = add(e,nil); :}
 				;
-unaryOp			::= MINUS
-				|	NOT
-				;
-binaryOp		::= PLUS
-				|	MINUS
-				|	TIMES
-				|	DIV
-				|	MOD
-				|	AND
-				|	OR
-				|	EQ
-				|	NEQ
-				|	LT
-				|	LEQ
-				|	GT
-				|	GEQ
-				;
-stmt			::= lvalue EQUAL expr
-				|	ID LP expr exprlist RP
-				|	ID LP RP
-				|	LB block RB
-				|	READ LP lvalue lvaluelist RP
-				|	PRINT LP RP
-				|	PRINT LP expr exprlist RP
-				|	IF LP expr RP stmt ifstmtlist
-				|	FOR LP ID EQUAL expr TO expr exprstmtlist RP stmt
-				|	WHILE LP expr RP stmt
-				|	LOOP stmt
-				|	EXIT
-				|	RETURN 
-				|	RETURN expr
+stmt			::= lvalue:lv EQUAL expr:e				{: RESULT = new AssignSt(lv,e); :}
+				|	ID:id LP exprlist:el RP				{: RESULT = new CallSt(id,el); :}
+				|	ID:id LP RP							{: RESULT = new CallSt(id,nil); :}
+				|	LB block:b RB						{: RESULT = b; :}
+				|	READ LP lvaluelist:ll RP			{: RESULT = new ReadSt(ll); :}
+				|	PRINT LP RP							{: RESULT = new PrintSt(nil); :}
+				|	PRINT LP exprlist:el RP				{: RESULT = new PrintSt(el); :}
+				|	IF LP expr:e RP stmt:sif elsestmt:sel			{: RESULT = new IfSt(e,sif,sel); :}
+				|	FOR LP ID:id EQUAL expr:e1 TO expr:e2 RP stmt:s	{: RESULT = new ForSt(id,e1,e2,new IntConst(1),s); :}
+				|	FOR LP ID:id EQUAL expr:e1 TO expr:e2 BY expr:e3 RP stmt:s	{: RESULT = new ForSt(id,e1,e2,e3,s); :}
+				|	WHILE LP expr:e RP stmt:s			{: RESULT = new WhileSt(e,s); :}
+				|	LOOP stmt:s							{: RESULT = new LoopSt(s); :}
+				|	EXIT								{: RESULT = new ExitSt(); :}
+				|	RETURN 								{: RESULT = new ReturnSt(); :}
+				|	RETURN expr:e						{: RESULT = new ReturnValueSt(e); :}
 				;
 lvaluelist		::= lvaluelist COMMA lvalue 
-				|
+				|	lvalue
 				;
-ifstmtlist		::= ELSE stmt
-				|
-				;
-exprstmtlist	::= BY expr
-				|
+elsestmt		::= ELSE stmt:s							{: RESULT = s; :}
+				|	{: RESULT = null; :}
 				;

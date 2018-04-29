@@ -8,7 +8,7 @@ object SPL {
 
   val use_project_1_solution = true
   val use_project_2_and_3_solution = true
-  val use_project_4_solution = false
+  val use_project_4_solution = true
   val use_project_5_solution = false
 
   var out: PrintStream = _

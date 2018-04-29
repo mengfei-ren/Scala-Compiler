@@ -88,7 +88,98 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
                 A)
 
       /* PUT YOUR CODE HERE */
-
+	  case IntConst(v) => IntValue(v)
+	  case FloatConst(v) => FloatValue(v)
+	  case StringConst(v) => StringValue(v)
+	  case BooleanConst(v) => {
+		if(v) IntValue(1) else IntValue(0)
+	  }
+	  case LvalExp(v) => code(v,level,fname)
+	  case NullExp() => IntValue(0)
+	  
+	  case UnOpExp(op,v) => {
+		var c = code(v,level,fname)
+		val uop = op.toUpperCase()
+		Unop(uop,c)
+	  }
+	  
+	  case CallExp(name,args) => {
+		st.lookup(name) match {
+			case Some(FuncDeclaration(_,_,label,clevel,_)) => {
+				var stlink:IRexp = Reg("fp")
+				for(i <- (clevel to level)) {
+					stlink = Mem(Binop("PLUS",stlink,IntValue(-8)))
+				}
+				Call(name,stlink,args.map(x=>code(x,level,fname)))
+			}
+			case _ => throw new Error("Undefiend function: "+name)
+		}
+	  }
+	  
+	  case ArrayExp(elements) => {
+		var tp = typechecker.typecheck(e)
+		typechecker.expandType(tp) match {
+			case ArrayType(atp) => {
+				val len = elements.length
+				val A = allocate_variable(new_name("A"),tp,fname)
+				var elcodes:List[IRstmt] = Nil
+				for(i<-0 until elements.length) {
+					val el = elements.apply(i)
+					var cel = code(el,level,fname)
+					var index = i + 1
+					elcodes = elcodes :+ Move(Mem(Binop("PLUS",A,IntValue(index*4))),cel)
+				}
+				val clen = code(IntConst(len),level,fname)
+				ESeq(Seq(List(Move(A,Allocate(IntValue(len+1))),
+							  Move(Mem(A),clen)
+							 ):::elcodes),
+					 A)
+			}
+			case _ => throw new Error("Illegal array expression: "+e)
+		}
+	  }
+	  
+	  case RecordExp(comps) => {
+		var tp = typechecker.typecheck(e)
+		typechecker.expandType(tp) match {
+			case RecordType(params) => {
+				val len = comps.length
+				val clen = code(IntConst(len),level, fname)
+				val R = allocate_variable(new_name("R"),tp,fname)
+				var explist:List[IRexp] = Nil
+				comps.foreach({
+					case Bind(v,ex) => explist = explist :+ code(ex,level,fname)
+				})
+				var complist:List[IRstmt] = explist.map(irex => {
+					val index = explist.indexOf(irex)
+					Move(Mem(Binop("PLUS",R,IntValue(index*4))),irex)
+				})
+				ESeq(Seq(List(Move(R,Allocate(IntValue(len)))):::complist),
+					 R)
+			}
+			case _ => throw new Error("Illegal record expression: " + e)
+		}
+	  }
+	  
+	  case TupleExp(elements) => {
+		var tp = typechecker.typecheck(e)
+		typechecker.expandType(tp) match {
+			case TupleType(ttp) => {
+				val len = elements.length
+				val T = allocate_variable(new_name("T"),tp,fname)
+				var elcodes:List[IRstmt] = elements.map(el=>{
+					var cel = code(el,level,fname)
+					var index = elements.indexOf(el)
+					Move(Mem(Binop("PLUS",T,IntValue(index*4))),cel)
+				})
+				val clen = code(IntConst(len),level,fname)
+				ESeq(Seq(List(Move(T,Allocate(IntValue(len+1)))):::elcodes),
+					 T)
+			}
+			case _ => throw new Error("Illegal tuple expression: "+e)
+		}
+	  }
+	  
       case _ => throw new Error("Wrong expression: "+e)
     }
 
@@ -106,6 +197,32 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
            }
 
      /* PUT YOUR CODE HERE */
+	 case Var(name) => name match {
+		case "false" | "Nil" => IntValue(0)
+		case "true" => IntValue(1)
+		case _ => access_variable(name,level)
+	 }
+	 
+	 case ArrayDeref(array,index) => {
+		val carray = code(array,level,fname)
+		val cindex = code(index,level,fname)
+		typechecker.expandType(typechecker.typecheck(array)) match {
+			case ArrayType(tp) => {
+				Mem(Binop("PLUS",carray,Binop("TIMES",Binop("PLUS", cindex, IntValue(1)),IntValue(4))))
+			}
+			case _ => throw new Error("Unknown array value: "+e)
+		}
+	 }
+
+	 case TupleDeref(tuple,index) => {
+		val ctuple = code(tuple,level,fname)
+		typechecker.expandType(typechecker.typecheck(tuple)) match {
+			case TupleType(tp) => {
+				Mem(Binop("PLUS",ctuple,IntValue(index*4)))
+			}
+			case _ => throw new Error("Unknown tuple value: "+e)
+		}
+	 }
 
      case _ => throw new Error("Wrong statement: " + e)
     }
@@ -132,6 +249,129 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
                     Label(exit)))
 
       /* PUT YOUR CODE HERE */
+	  case AssignSt(dest,source) => {
+		var cd = code(dest,level,fname)
+		var cs = code(source,level,fname)
+		Move(cd,cs)
+	  }
+	  
+	  case CallSt(name,args) => {
+		st.lookup(name) match {
+			case Some(FuncDeclaration(_,_,label,clevel,_)) => {
+				var rfp:IRexp = Reg("fp")
+				for(i <- clevel to level) {
+					rfp = Mem(Binop("PLUS",rfp,IntValue(-8)))
+				}
+				CallP(label,rfp,args.map(arg=>code(arg,level,fname)))
+			}
+			case _ => throw new Error("Unknown function: "+name)
+		}
+	  }
+	  
+	  case ReadSt(args) => {
+		var st = args.map(arg => {
+			var x = code(arg,level,fname)
+			typechecker.typecheck(arg) match {
+				case StringType() => SystemCall("READ_STRING",x)
+				case FloatType() => SystemCall("READ_FLOAT",x)
+				case IntType() => SystemCall("READ_INT",x)
+				case _ => throw new Error("Unknown type"+typechecker.typecheck(arg))
+			}
+		})
+		Seq(st)
+	  }
+	  
+	  case PrintSt(args) => {
+		var arglist: List[IRstmt] = List()
+		for(i<-0 until args.length) {
+			var arg = args.apply(i)
+			var x = code(arg,level,fname)
+			typechecker.typecheck(arg) match {
+				case StringType() => arglist = arglist :+ SystemCall("WRITE_STRING",x)
+				case FloatType() => arglist = arglist :+ SystemCall("WRITE_FLOAT",x)
+				case IntType() => arglist = arglist :+ SystemCall("WRITE_INT",x)
+				case _ => throw new Error("Expect primitive type in Print statement: "+e)
+			}
+		}
+		arglist = arglist :+ SystemCall("WRITE_STRING",code(StringConst("\\n"),level,fname))
+		Seq(arglist)
+	  }
+	  
+	  case IfSt(cond,thenst,elsest) => {
+		var trueL = new_name("trueL")
+		var exit = new_name("exit")
+		var ccond = code(cond,level,fname)
+		var cthen = code(thenst,level,fname,exit_label)
+		if(elsest != null) {
+			var celse = code(elsest,level,fname,exit_label)
+			Seq(List(CJump(ccond,trueL),
+					 celse,
+					 Jump(exit),
+					 Label(trueL),
+					 cthen,
+					 Label(exit)))
+		} else {
+			Seq(List(CJump(ccond,trueL),
+					 Seq(List()),
+					 Jump(exit),
+					 Label(trueL),
+					 cthen,
+					 Label(exit)))
+		}
+	  }
+	  
+	  case WhileSt(cond,body) => {
+		var loop = new_name("loop")
+		var exit = new_name("exit")
+		var ccond = code(cond,level,fname)
+		var cbody = code(body,level,fname,exit_label)
+		Seq(List(Label(loop),
+				 CJump(Unop("NOT",ccond),exit),
+				 cbody,
+				 Jump(loop),
+				 Label(exit)))
+	  }
+	  
+	  case LoopSt(body) => {
+		var loop = new_name("loop")
+		var exit = new_name("exit")
+		var cbody = code(body,level,fname,exit_label)
+		Seq(List(Label(loop),
+				 cbody,
+				 Jump(loop),
+				 Label(exit)))
+	  }
+	  
+	  case ExitSt() => { Jump(exit_label) }
+	  
+	  case ReturnValueSt(v) => {
+		Seq(List(Move(Reg("a0"),code(v,level,fname)),
+				 Move(Reg("ra"),Mem(Binop("PLUS",Reg("fp"),IntValue(-4)))),
+                 Move(Reg("sp"),Reg("fp")),
+                 Move(Reg("fp"),Mem(Reg("fp"))),
+                 Return()))
+	  }
+	  
+	  case ReturnSt() => {
+		Seq(List(Move(Reg("ra"),Mem(Binop("PLUS",Reg("fp"),IntValue(-4)))),
+                 Move(Reg("sp"),Reg("fp")),
+                 Move(Reg("fp"),Mem(Reg("fp"))),
+                 Return()))
+	  }
+	  
+	  case BlockSt(decls,stmts) => {
+	    var declist:List[IRstmt] = List()
+		var stmtlist:List[IRstmt] = List()
+		st.begin_scope()
+		for(i<-0 until decls.length) {
+			declist = declist :+ code(decls.apply(i),fname,level)
+		}
+		for(j<-0 until stmts.length){
+			stmtlist = stmtlist :+ code(stmts.apply(j),level,fname,exit_label)
+		}
+		st.end_scope()
+		Seq(declist ::: stmtlist)
+	  }
 
       case _ => throw new Error("Wrong statement: " + e)
    }
@@ -170,6 +410,29 @@ class Code ( tc: TypeChecker ) extends CodeGenerator(tc) {
            }
 
       /* PUT YOUR CODE HERE */
+	  case VarDef(name,hasType,value) => {
+		var tp = typechecker.typecheck(value) 
+		var dest:IRexp = null
+		if (value == NullExp())
+			dest = allocate_variable(name,hasType,fname)
+		else if(hasType == null || hasType == AnyType())
+			dest = allocate_variable(name,tp,fname)
+		else {
+			tp match {
+				case RecordType(_) => tp = hasType
+				case _ => tp = typechecker.typecheck(value)
+			}
+			if(hasType != tp)
+				throw new Error("The Var definition does not match the required type: "+e)
+			else dest = allocate_variable(name,hasType,fname)
+		}
+		Move(dest,code(value,level,fname))
+	  }
+	  
+	  case TypeDef(name,isType) => {
+		st.insert(name,TypeDeclaration(isType))
+		Seq(List())
+	  }
 
       case _ => throw new Error("Wrong statement: " + e)
     }

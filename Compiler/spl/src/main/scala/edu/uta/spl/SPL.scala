@@ -9,7 +9,7 @@ object SPL {
   val use_project_1_solution = true
   val use_project_2_and_3_solution = true
   val use_project_4_solution = true
-  val use_project_5_solution = false
+  val use_project_5_solution = true
 
   var out: PrintStream = _
   var program_ast: Program = _
@@ -61,6 +61,7 @@ object SPL {
                 if (phase == 6) {
                    val mipsgenerator: MipsGenerator = new Mips
                    out = new PrintStream(file.dropRight(5)+".s")
+				   mipsgenerator.initialCode()
                    for ( s <- nir ) {
                       mipsgenerator.clear
                       val prettyprinter = new PrettyPrint(80,"# ")

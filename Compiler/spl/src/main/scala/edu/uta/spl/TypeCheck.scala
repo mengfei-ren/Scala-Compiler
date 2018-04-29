@@ -113,8 +113,82 @@ class TypeCheck extends TypeChecker {
            else ltp
 
       /* PUT YOUR CODE HERE */
-
-      case _ => throw new Error("Wrong expression: "+e)
+	  case IntConst(i) => IntType()
+      case FloatConst(r) => FloatType()
+      case StringConst(s) => StringType()
+	  case BooleanConst(s) => BooleanType()
+      case LvalExp(le) => typecheck(le)
+	  case NullExp() => AnyType()
+	  
+	  case UnOpExp(op,od) => {
+		var utp = typecheck(od)
+		if(op.equals("minus"))
+			if(!typeEquivalence(utp, IntType()) && !typeEquivalence(utp, FloatType()))
+				throw new Error("Unary operation - can only be applied to integer or real numbers: " + e)
+			else utp
+		else if (op.equals("not"))
+			if(!typeEquivalence(utp, BooleanType()) )
+				throw new Error("Unary operation NOT can only be applied to booleans: " + e)
+			else utp
+		else NoType()
+	  }
+      
+	  case CallExp(name,args) => {
+		st.lookup(name) match {
+			case Some(FuncDeclaration(otp,params,"",0,0)) => {
+				if(args.length != params.length)
+					throw new Error("Number of parameters does not match the number of arguments: " + e)
+				
+				args.map(arg => typecheck(arg)).zip(params).map(m => {
+					var tpx = m._1
+					var tpy = m._2 match { case Bind(_,tp) => tp }
+					if (!typeEquivalence(tpx,tpy))
+						throw new Error("Type of argument "+tpx+" does not match type of parameter: "+tpy)
+				})
+				
+				otp
+			}
+			case _ => throw new Error("Undefiend function: "+name)
+		}
+	  }
+	  
+	  case RecordExp(comps) => {
+		var tpList:List[Bind[Type]] = List()
+		comps.foreach({
+			case Bind(v,ex) => {
+				var tpBind:Bind[Type] = Bind(v,typecheck(ex))
+				tpList = tpList :+ tpBind
+			}
+		})
+		RecordType(tpList)
+	  }
+	  
+	  case TupleExp(args) => {
+		var tpList:List[Type] = List()
+		args.foreach(arg => {
+			tpList = tpList :+ typecheck(arg)
+		})
+		TupleType(tpList)
+	  }
+	  
+	  case ArrayExp(args) => {
+		var tp = typecheck(args.head)
+		for(index <- 1 until args.length) {
+			if(!typeEquivalence(typecheck(args.apply(index)),tp))
+				throw new Error("The elements in an array should have the same type: " + e)
+		}
+		ArrayType(tp)
+	  }
+	  
+	  case ArrayGen(len,vl) => {
+		var length = typecheck(len)
+		var valuetp = typecheck(vl)
+		if(!typeEquivalence(length,IntType()))
+			error("The length of array must be integer" + e)
+		else ArrayType(valuetp)
+	  }
+	  
+	  case _ => throw new Error("Wrong expression: "+e)
     } )
 
   /** typecheck an Lvalue AST */
@@ -128,7 +202,45 @@ class TypeCheck extends TypeChecker {
         }
 
       /* PUT YOUR CODE HERE */
-
+	  case ArrayDeref(name,index) => {
+		if(!typeEquivalence(typecheck(index),IntType()))
+			throw new Error("Array index must be integer: " + e)
+		expandType(typecheck(name)) match {
+			case ArrayType(tp) => tp
+			case _ => throw new Error("Array indexing could only be done on an array: " + e)
+		}
+	  }
+	  
+	  case RecordDeref(name,attr) => {
+		expandType(typecheck(name)) match {
+			case RecordType(comps) => {
+				var attrList:List[String] = List()
+				comps.foreach({
+					case Bind(v,_) => attrList = attrList :+ v
+				})
+				if(!attrList.contains(attr))
+					throw new Error("The attribute is invalid in this Record value: "+attr)
+				else {
+					var index = attrList.indexOf(attr,0)
+					comps(index).value
+				}
+			}
+			case _ => throw new Error("Record projection can only be done on records: " + e)
+		}
+	  }
+	  
+	  case TupleDeref(name,index) => {
+		expandType(typecheck(name)) match {
+			case TupleType(t) => {
+				t match {
+					case List(tp) => TupleType(List(typecheck(name)))
+					case _ => throw new Error("TupleDeref units is not valid: "+e)
+				}
+			}
+			case _ => throw new Error("Tuple indexing can only be done on tuples:" + e)
+		}
+	  }
+	  
       case _ => throw new Error("Wrong lvalue: "+e)
     } )
 
@@ -140,7 +252,99 @@ class TypeCheck extends TypeChecker {
               error("Incompatible types in assignment: "+e)
 
       /* PUT YOUR CODE HERE */
-
+	  case CallSt(name, args) => {
+		st.lookup(name) match {
+			case Some(FuncDeclaration(otp,params,_,0,0)) => {
+				if(args.length != params.length)
+					throw new Error("Numbers of parameters does not match number of arguments:" + e)
+				else {
+					args.map(arg => typecheck(arg)).zip(params).map(m => {
+					var tpx = m._1
+					var tpy = m._2 match { case Bind(_,tp) => tp }
+					if (!typeEquivalence(tpx,tpy))
+						throw new Error("Type of argument "+tpx+" does not match type of parameter: "+tpy)
+					})	
+				}
+				otp
+			}	
+						
+			case _ => throw new Error("Undefined function: " + name)
+		}
+	  } 
+	  
+	  case ReadSt(args) => {
+		args.foreach(arg => {
+			var tp = typecheck(arg)
+			if(!typeEquivalence(tp, BooleanType()) && !typeEquivalence(tp, IntType()) 
+			&& !typeEquivalence(tp, FloatType()) && !typeEquivalence(tp, StringType()))
+				throw new Error("Expect primitive type in READ statement: "+e)
+		})
+	  }
+	  
+	  case PrintSt(args) => {
+		args.foreach(arg => {
+			var tp = typecheck(arg)
+			if(!typeEquivalence(tp, BooleanType()) && !typeEquivalence(tp, IntType()) 
+			&& !typeEquivalence(tp, FloatType()) && !typeEquivalence(tp, StringType()))
+				throw new Error("Expect primitive type in Print statement: "+e)
+		})
+	  }
+	  
+	  case IfSt(condtion,then_stmt,else_stmt) => {
+		if(!typeEquivalence(typecheck(condtion),BooleanType()))
+			throw new Error("Expect a boolean value in IF test" + condtion)
+		typecheck(then_stmt, expected_type)
+		if(else_stmt != null)
+			typecheck(else_stmt, expected_type)
+	  }
+	  
+	  case WhileSt(cond,body) => {
+		if(!typeEquivalence(typecheck(cond),BooleanType()))
+			throw new Error("Expect a boolean value in IF test" + cond)
+		typecheck(body,expected_type)
+	  }
+	  
+	  case LoopSt(body) => {
+		typecheck(body,expected_type)
+	  }
+	  
+	  case ForSt(variable,init,step,incr,body) => {
+		if(!typeEquivalence(typecheck(init),IntType()))
+			throw new Error("Initial value in FOR loop must be integer:"+init)
+		if(!typeEquivalence(typecheck(step),IntType()))
+			throw new Error("Step in FOR loop must be integer:"+step)
+		if(!typeEquivalence(typecheck(incr),IntType()))
+			throw new Error("The increment for each step in FOR loop must be integer:"+incr)
+		st.begin_scope()
+		st.insert(variable,VarDeclaration(IntType(),0,0))
+		typecheck(body,expected_type)
+		st.end_scope()
+	  }
+	  
+	  case ExitSt() => {}
+	  
+	  case ReturnValueSt(value) => {
+		if(!typeEquivalence(expected_type, NoType())) {
+			var tp = typecheck(value)
+			if(!typeEquivalence(tp, expected_type))
+			throw new Error("Expect a return value with a different type: "+e)
+		}
+		else 
+			throw new Error("Return type should be void: "+e)
+	  }
+	  
+	  case ReturnSt() => {
+		if(!typeEquivalence(expected_type, NoType()))
+			throw new Error("Return type should be void: "+e)
+	  }
+	  
+	  case BlockSt(decls,stmts) => {
+		st.begin_scope()
+		decls.foreach(decl => typecheck(decl))
+		stmts.foreach(stmt => typecheck(stmt,expected_type))
+		st.end_scope()
+	  }
+	  
       case _ => throw new Error("Wrong statement: "+e)
     } )
   }
@@ -156,7 +360,23 @@ class TypeCheck extends TypeChecker {
            st.end_scope()
 
       /* PUT YOUR CODE HERE */
-
+	  case TypeDef(t,isType) => {
+		st.insert(t,TypeDeclaration(isType))
+	  }
+	  
+	  case VarDef(v,hasType,value) => {
+		var tp = typecheck(value)
+		tp match {
+			case AnyType() => st.insert(v,VarDeclaration(tp,0,0))
+			case _ => {
+				if(!typeEquivalence(hasType,tp))
+					throw new Error("The Var definition does not match the required type: "+e)
+				else
+					st.insert(v,VarDeclaration(tp,0,0))
+			}		
+		}
+	  }
+	  
       case _ => throw new Error("Wrong statement: "+e)
     } )
   }

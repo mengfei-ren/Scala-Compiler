@@ -1,4 +1,3 @@
-# Courses
-Courses work @ UTA
+# Compiler in Scalar
 
 CSE5317 Compiler
